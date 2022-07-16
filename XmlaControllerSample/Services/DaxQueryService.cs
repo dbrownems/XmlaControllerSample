@@ -14,12 +14,26 @@ namespace XmlaControllerSample.Services
             this.con = pool.GetConnection();
         }
 
-        public IDataReader ExecuteReader(string query)//, string? effectiveUserName = null)
+        public AdomdParameter CreateParameter(string name, object value)
+        {
+            if (name.StartsWith("@"))
+                name = "@" + name;
+
+            return new AdomdParameter(name, value);
+        }
+
+        public IDataReader ExecuteReader(string query, params AdomdParameter[] parameters )
         {
             //con.ChangeEffectiveUser(effectiveUserName);
             var cmd = con.CreateCommand();
+            foreach ( var parameter in parameters )
+            {
+                cmd.Parameters.Add( parameter );
+            }
+            
             cmd.CommandText = query;
             return cmd.ExecuteReader();
+            
         }
         
         public void Dispose()

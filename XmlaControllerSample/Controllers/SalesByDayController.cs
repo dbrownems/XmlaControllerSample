@@ -18,7 +18,7 @@ namespace XmlaControllerSample.Controllers
         // DAX Query
 DEFINE
   VAR __DS0FilterTable = 
-    TREATAS({2012}, 'DimDate'[FiscalYear])
+    TREATAS({@FiscalYear}, 'DimDate'[FiscalYear])
 
   VAR __DS0Core = 
     SUMMARIZECOLUMNS(
@@ -65,13 +65,15 @@ ORDER BY
             Dapper.SqlMapper.SetTypeMap(typeof(SalesByDay), map);
         }
 
+
         [HttpGet]
-        public async Task<List<SalesByDay>> GetSalesByDay()
+        public async Task<List<SalesByDay>> GetSalesByDay(int fiscalYear)
         {
 
             var sw = new Stopwatch();
             sw.Start();
-            using var rdr = queryService.ExecuteReader(query);
+            var pFy = queryService.CreateParameter("FiscalYear", fiscalYear);
+            using var rdr = queryService.ExecuteReader(query, pFy);
             var sales = rdr.Parse<SalesByDay>().ToList();
             logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {sales.Count}rows");
 
