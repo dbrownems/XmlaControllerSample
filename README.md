@@ -6,12 +6,9 @@ This is a sample .NET 6 Web API project that sends a DAX query to a Power BI Pre
         [HttpGet]
         public async Task<List<SalesByDay>> GetSalesByDay(int fiscalYear)
         {
-            var sw = new Stopwatch();
-            sw.Start();
             var pFy = queryService.CreateParameter("FiscalYear", fiscalYear);
             using var rdr = queryService.ExecuteReader(query, pFy);
             var sales = rdr.Parse<SalesByDay>().ToList();
-            logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {sales.Count}rows");
 
             return sales; 
         }
