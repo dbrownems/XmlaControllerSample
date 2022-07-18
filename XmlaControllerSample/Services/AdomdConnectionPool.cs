@@ -2,194 +2,139 @@
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Identity.Client;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
+using System.Threading.Channels;
 
 namespace XmlaControllerSample.Services
 {
 
     public class AdomdConnectionPool : IPooledObjectPolicy<AdomdConnection>
     {
-        private IConfidentialClientApplication client;
-        private JwtSecurityTokenHandler tokenHandler;
+       // private IConfidentialClientApplication client;
+        private readonly ConnectionOptions options;
         private ILogger log;
-        string clientId;
-        string clientSecret;
-        string tenantId;
-        string dataSource;
-        string catalog;
+
 
         ObjectPool<AdomdConnection> pool;
-        ConcurrentDictionary<AdomdConnection, ConnectionPoolEntry> entries = new ConcurrentDictionary<AdomdConnection, ConnectionPoolEntry>();
 
-
-        public AdomdConnectionPool(IConfiguration config, ILogger<AdomdConnectionPool> log, IServiceProvider services)
+        public AdomdConnectionPool(IConfiguration config, ILogger<AdomdConnectionPool> log) : this(config.Get<ConnectionOptions>(),log)
         {
-            clientId = config["ClientId"];
-            clientSecret = config["ClientSecret"];
-            tenantId = config["TenantId"];
-            dataSource = config["XMLAEndpoint"];
-            catalog = config["DatasetName"];
-            tokenHandler = new JwtSecurityTokenHandler();
+        }
+        public AdomdConnectionPool(ConnectionOptions options, ILogger<AdomdConnectionPool> log)
+        {
+            this.options = options;
+            options.Validate();
             this.log = log;
 
-            var authority = $"https://login.microsoftonline.com/{tenantId}";
-
-            client = ConfidentialClientApplicationBuilder.Create(clientId)
-                                                         .WithAuthority(authority)
-                                                         .WithClientSecret(clientSecret)
-                                                         .Build();
             pool = ObjectPool.Create<AdomdConnection>(this);
+
+            Task.Run(() => WarmUp());
+        }
+
+        void WarmUp()
+        {
+            int n = 10;
+            log.LogInformation($"Starting warming Connection Pool with {n} connections");
+            var cons = new ConcurrentBag<AdomdConnection>();
+
+            for (int i = 0; i < n; i++)
+            {
+                cons.Add(pool.Get());
+            }
             
+
+            foreach (var c in cons)
+            {
+                pool.Return(c);
+            }
+            log.LogInformation($"Completed warming Connection Pool with {n} connections");
 
         }
         public AdomdConnection GetConnection()
         {
 
             var con = pool.Get();
-            var entry = GetEntry(con);
-
-            //weed out connections whose tokens have timed out while in the pool
-            while (!entry.IsValidForCheckout)
-            {
-                pool.Return(con);
-                con = pool.Get();
-            }
-
-            GetEntry(con).RecordCheckOut();
             return con;
-        }
-
-        ConnectionPoolEntry GetEntry(AdomdConnection con)
-        {
-            if (entries.TryGetValue(con, out var entry))
-            {
-                return entry;
-            }
-            throw new InvalidOperationException("No ConnectionPoolEntry found for AdodbConnection");
         }
 
         public void ReturnConnection(AdomdConnection con)
         {
+            if (con == null)
+                return;
             pool.Return(con);
         }
-    
 
-        async Task<string> GetAccessTokenAsync()
-        {
         
-            //use this resourceId for Power BI Premium
-            var scope = "https://analysis.windows.net/powerbi/api/.default";
+
+        //async Task<string> GetAccessTokenAsync()
+        //{
+
+        //    var sw = new Stopwatch();
+        //    sw.Start();
+        //    //use this resourceId for Power BI Premium
+        //    var scope = "https://analysis.windows.net/powerbi/api/.default";
             
-            //use this resourceId for Azure Analysis Services
-            //var resourceId = "https://*.asazure.windows.net";
+        //    //use this resourceId for Azure Analysis Services
+        //    //var resourceId = "https://*.asazure.windows.net";
 
-            var token = await client.AcquireTokenForClient(new List<string>() { scope }).ExecuteAsync();
+        //    var token = await client.AcquireTokenForClient(new List<string>() { scope }).ExecuteAsync();
 
-            return token.AccessToken;
-        }
+        //    if (sw.ElapsedMilliseconds > 200)
+        //        log.LogWarning($"AcquireTokenForClient returned in {sw.ElapsedMilliseconds:F0}ms");
+
+        //    return token.AccessToken;
+        //}
+
 
         AdomdConnection IPooledObjectPolicy<AdomdConnection>.Create()
         {
-            var accessToken = GetAccessTokenAsync().Result;
-            var constr = $"Data Source={dataSource};User Id=;Password={accessToken};Catalog={catalog};";
+            //var accessToken = GetAccessTokenAsync().Result;
+            //var constr = $"Data Source={options.XmlaEndpoint};User Id=;Password={accessToken};Catalog={options.DatasetName}";
+            var constr = $"Data Source={options.XmlaEndpoint};User Id=app:{options.ClientId}@{options.TenantId};Password={options.ClientSecret};Catalog={options.DatasetName}";
             var con = new AdomdConnection(constr);
-            var entry = new ConnectionPoolEntry(con, constr);
 
             con.Open();
-            var token = tokenHandler.ReadJwtToken(accessToken);
-            entry.ValidTo = token.ValidTo.ToLocalTime();
-            entries.TryAdd(con, entry);
+
+            log.LogInformation("Creating new pooled connection");
+                        
             return con;
         }
 
         bool IPooledObjectPolicy<AdomdConnection>.Return(AdomdConnection con)
         {
-            var entry = GetEntry(con);
-
-
-            if (entry.ValidTo.Subtract(DateTime.Now) < TimeSpan.FromMinutes(5) || !entry.IsValidForCheckout)
-            {
-                con.Dispose();
-                entries.TryRemove(con, out _);
-                return false;
-            }
-            else
-            {
-                entry.RecordCheckIn();
-                return true;
-            }
+            return true;
         }
 
-        class ConnectionPoolEntry
+        public class ConnectionOptions
         {
+            private bool UseManagedIdentity { get; set; }  //not implemented
+            public string ClientId { get; set; }
+            public string ClientSecret { get; set; }
+            public string TenantId { get; set; }
+            public string XmlaEndpoint { get; set; }
+            public string DatasetName { get; set; }
+            private string EffectiveUserName { get; set; }//not implemented
 
-            public ConnectionPoolEntry(AdomdConnection con, string connectionString)
+            public void Validate()
             {
-                this.Connection = con;
-                this.ConnectionString = connectionString;
-
-                //the combindation of the strong reference to the connection
-                //and this delegate ties the reachability of the ConnectionPoolEntry and the AdomdConnection together
-                //so they are guaranteed to become unreachable at the same time
-                //This would enable the ConnectionPool to keep a WeakReference to the ConnectionPoolEntry without
-                //keeping the AdomdConnection alive, but also not worry about the ConnectionPoolEntry being GCd
-                //while the AdomdConnection is still alive.
-                con.Disposed += (s, a) =>
+                if (!UseManagedIdentity && (ClientId == null || ClientSecret == null || TenantId == null))
                 {
-                    this.IsDisposed = true;
-                    this.Connection = null;
-                };
-
-
-            }
-
-            public bool IsValidForCheckout
-            {
-                get
+                    throw new ArgumentException("If not Using Manged Identity, ClientId, ClientSecret, and TenantId are required.");
+                }
+                if (XmlaEndpoint == null || !Uri.IsWellFormedUriString(XmlaEndpoint, UriKind.Absolute))
                 {
-                    return ValidTo.Subtract(DateTime.Now) > TimeSpan.FromMinutes(1) && !IsDisposed;
+                    throw new ArgumentException("XmlaEndpoint Uri is required, and must be a valid Uri.");
+                }
+                if (DatasetName == null)
+                {
+                    throw new ArgumentException("DatasetName is required.  Specify the name of the Dataset or Database.");
                 }
             }
 
-            public bool IsDisposed { get; private set; } = false;
 
-            [System.Text.Json.Serialization.JsonIgnore]
-            public string ConnectionString { get; private set; }
-
-            [System.Text.Json.Serialization.JsonIgnore]
-            public AdomdConnection? Connection { get; private set; }
-
-            public DateTime ValidTo { get; set; }
-
-            public void RecordCheckIn()
-            {
-                IsCheckedOut = false;
-                TotalCheckoutTime += DateTime.Now.Subtract(LastCheckedOut);
-                LastCheckedIn = DateTime.Now;
-
-
-            }
-
-            public void RecordCheckOut()
-            {
-                IsCheckedOut = true;
-                LastCheckedOut = DateTime.Now;
-                TimesCheckedOut += 1;
-            }
-            public bool IsCheckedOut { get; private set; }
-            public int TimesCheckedOut { get; private set; } = 0;
-
-            [System.Text.Json.Serialization.JsonIgnore]
-            public TimeSpan TotalCheckoutTime { get; private set; }
-            public DateTime LastCheckedOut { get; private set; } = DateTime.MinValue;
-            public DateTime LastCheckedIn { get; private set; } = DateTime.MinValue;
-            public DateTime CreatedAt { get; private set; } = DateTime.Now;
-
-            public override string ToString()
-            {
-                return System.Text.Json.JsonSerializer.Serialize(this);
-            }
         }
-
+     
+  
     }
 }

@@ -15,7 +15,7 @@ namespace XmlaControllerSample.Controllers
     public class SalesByDayController : ControllerBase
     {
         string query = @"
-        // DAX Query
+// DAX Query
 DEFINE
   VAR __DS0FilterTable = 
     TREATAS({@FiscalYear}, 'DimDate'[FiscalYear])
@@ -37,10 +37,12 @@ ORDER BY
         private DaxQueryService queryService;
         private ILogger<SalesByDayController> logger;
 
+        
         public SalesByDayController( DaxQueryService queryService, ILogger<SalesByDayController> logger)
         {
             this.queryService = queryService;
             this.logger = logger;
+            
         }
         static SalesByDayController()
         {
@@ -69,7 +71,6 @@ ORDER BY
         [HttpGet]
         public async Task<List<SalesByDay>> GetSalesByDay(int fiscalYear)
         {
-
             var sw = new Stopwatch();
             sw.Start();
             var pFy = queryService.CreateParameter("FiscalYear", fiscalYear);
@@ -78,8 +79,6 @@ ORDER BY
             logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {sales.Count}rows");
 
             return sales; 
-
-
         }
     }
 }
