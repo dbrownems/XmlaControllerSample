@@ -19,37 +19,46 @@ namespace XmlaControllerSample.Services
         public AdomdParameter CreateParameter(string name, object value)
         {
             if (name.StartsWith("@"))
-                name = "@" + name;
+                throw new ArgumentException("Parameter Names should not start with `@`");
 
             return new AdomdParameter(name, value);
         }
 
         public IDataReader ExecuteReader(string query, params AdomdParameter[] parameters)
         {
+            if (con == null)
+            {
+                this.con = pool.GetConnection();
+            }
+
+            var cmd = con.CreateCommand();
+            cmd.CommandText = query;
+
+            foreach (var parameter in parameters)
+            {
+                cmd.Parameters.Add(parameter);
+            }
+            
             int retries = 1;
             while (retries >= 0)
             {
                 try
                 {
-                    if (con == null)
+                    var rdr = cmd.ExecuteReader();
+                    if (retries == 0)
                     {
-                        this.con = pool.GetConnection();
+                        log.LogWarning("Query succeeded after retry");
                     }
-                    //con.ChangeEffectiveUser(effectiveUserName);
-                    var cmd = con.CreateCommand();
-                    foreach (var parameter in parameters)
-                    {
-                        cmd.Parameters.Add(parameter);
-                    }
-
-                    cmd.CommandText = query;
-                    return cmd.ExecuteReader();
+                    return rdr;
                 }
                 catch (AdomdConnectionException ex)
                 {
                     if (retries > 0)
                     {
-                        log.LogInformation($"{ex.GetType().Name} {ex.Message} retrying");
+                        log.LogWarning($"{ex.GetType().Name} {ex.Message} retrying");
+                        this.con.Dispose();
+                        this.con = pool.GetConnection();
+                        cmd.Connection = this.con;
                         retries -= 1;
                         continue;
 

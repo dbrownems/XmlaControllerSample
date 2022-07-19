@@ -1,10 +1,6 @@
 ﻿using Microsoft.AnalysisServices.AdomdClient;
 using Microsoft.Extensions.ObjectPool;
-using Microsoft.Identity.Client;
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IdentityModel.Tokens.Jwt;
-using System.Threading.Channels;
 
 namespace XmlaControllerSample.Services
 {
@@ -16,6 +12,7 @@ namespace XmlaControllerSample.Services
         private ILogger log;
 
 
+        ConcurrentDictionary<string, DateTime> sessionStartTimes = new ConcurrentDictionary<string, DateTime>();
         ObjectPool<AdomdConnection> pool;
 
         public AdomdConnectionPool(IConfiguration config, ILogger<AdomdConnectionPool> log) : this(config.Get<ConnectionOptions>(),log)
@@ -51,10 +48,26 @@ namespace XmlaControllerSample.Services
             log.LogInformation($"Completed warming Connection Pool with {n} connections");
 
         }
+
+        bool IsSessionValid(AdomdConnection  con)
+        {
+            var sessionStart = sessionStartTimes[con.SessionID];
+            var openFor = DateTime.Now.Subtract(sessionStart);
+            var rv = (openFor < TimeSpan.FromMinutes(20));
+            return rv;
+
+        }
         public AdomdConnection GetConnection()
         {
 
             var con = pool.Get();
+
+            while (con.State != System.Data.ConnectionState.Open || !IsSessionValid(con))
+            {
+                log.LogInformation("Retrieved connection that either was not Open or whose session has timed out.");
+                ReturnConnection(con);
+                con = pool.Get();
+            }
             return con;
         }
 
@@ -62,6 +75,8 @@ namespace XmlaControllerSample.Services
         {
             if (con == null)
                 return;
+
+            
             pool.Return(con);
         }
 
@@ -95,7 +110,7 @@ namespace XmlaControllerSample.Services
             var con = new AdomdConnection(constr);
 
             con.Open();
-
+            sessionStartTimes.AddOrUpdate(con.SessionID, s => DateTime.Now, (s,d) => DateTime.Now);
             log.LogInformation("Creating new pooled connection");
                         
             return con;
@@ -103,6 +118,14 @@ namespace XmlaControllerSample.Services
 
         bool IPooledObjectPolicy<AdomdConnection>.Return(AdomdConnection con)
         {
+            if (con.State != System.Data.ConnectionState.Open || !IsSessionValid(con))
+            {
+                sessionStartTimes.Remove(con.SessionID, out _);
+                return false;
+            }
+                
+
+
             return true;
         }
 
