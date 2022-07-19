@@ -121,6 +121,7 @@ namespace XmlaControllerSample.Services
             if (con.State != System.Data.ConnectionState.Open || !IsSessionValid(con))
             {
                 sessionStartTimes.Remove(con.SessionID, out _);
+                con.Dispose();
                 return false;
             }
                 
