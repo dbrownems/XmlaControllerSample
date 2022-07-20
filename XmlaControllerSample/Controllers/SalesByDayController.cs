@@ -4,6 +4,7 @@ using XmlaControllerSample.Services;
 using XmlaControllerSample.Models;
 using Dapper;
 using System.Diagnostics;
+using System.Data;
 
 namespace XmlaControllerSample.Controllers
 {

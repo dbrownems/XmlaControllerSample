@@ -1,4 +1,5 @@
 ﻿using Microsoft.AnalysisServices.AdomdClient;
+using Polly;
 using System.Data;
 
 namespace XmlaControllerSample.Services
@@ -19,7 +20,7 @@ namespace XmlaControllerSample.Services
         public AdomdParameter CreateParameter(string name, object value)
         {
             if (name.StartsWith("@"))
-                throw new ArgumentException("Parameter Names should not start with `@`");
+                throw new ArgumentException("Parameter Names should not start with '@'");
 
             return new AdomdParameter(name, value);
         }
@@ -27,10 +28,22 @@ namespace XmlaControllerSample.Services
         public IDataReader ExecuteReader(string query, params AdomdParameter[] parameters)
         {
             if (con == null)
-            {
-                this.con = pool.GetConnection();
-            }
+                con = pool.GetConnection();
 
+            var retryPolicy = Policy.Handle<AdomdConnectionException>()
+                                    .WaitAndRetry(new TimeSpan[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4) },
+                                    onRetry: (e, t) => 
+                                    {
+                                        log.LogWarning($"Retrying after exception {e.GetType().Name} : {e.Message}");
+                                        //retry using a new, validated connection
+                                        con.Dispose();
+                                        this.con = pool.GetValidatedConnection(); 
+                                    });
+
+            return retryPolicy.Execute(() => ExecuteReaderImpl(query, parameters));
+        }
+        IDataReader ExecuteReaderImpl(string query, params AdomdParameter[] parameters)
+        {
             var cmd = con.CreateCommand();
             cmd.CommandText = query;
 
@@ -38,37 +51,8 @@ namespace XmlaControllerSample.Services
             {
                 cmd.Parameters.Add(parameter);
             }
-            
-            int retries = 1;
-            while (retries >= 0)
-            {
-                try
-                {
-                    var rdr = cmd.ExecuteReader();
-                    if (retries == 0)
-                    {
-                        log.LogWarning("Query succeeded after retry");
-                    }
-                    return rdr;
-                }
-                catch (AdomdConnectionException ex)
-                {
-                    if (retries > 0)
-                    {
-                        log.LogWarning($"{ex.GetType().Name} {ex.Message} retrying");
-                        this.con.Dispose();
-                        this.con = pool.GetConnection();
-                        cmd.Connection = this.con;
-                        retries -= 1;
-                        continue;
-
-                    }
-                    throw;
-                    
-                }
-            }
-            throw new InvalidOperationException("Unexpected code flow");
-
+            var rdr = cmd.ExecuteReader();
+            return rdr;
         }
 
         public void Dispose()

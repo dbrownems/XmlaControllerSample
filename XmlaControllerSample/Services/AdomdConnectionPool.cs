@@ -1,16 +1,15 @@
 ﻿using Microsoft.AnalysisServices.AdomdClient;
 using Microsoft.Extensions.ObjectPool;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace XmlaControllerSample.Services
 {
 
     public class AdomdConnectionPool : IPooledObjectPolicy<AdomdConnection>
     {
-       // private IConfidentialClientApplication client;
         private readonly ConnectionOptions options;
         private ILogger log;
-
 
         ConcurrentDictionary<string, DateTime> sessionStartTimes = new ConcurrentDictionary<string, DateTime>();
         ObjectPool<AdomdConnection> pool;
@@ -31,7 +30,7 @@ namespace XmlaControllerSample.Services
 
         void WarmUp()
         {
-            int n = 10;
+            int n = 4;
             log.LogInformation($"Starting warming Connection Pool with {n} connections");
             var cons = new ConcurrentBag<AdomdConnection>();
 
@@ -49,7 +48,13 @@ namespace XmlaControllerSample.Services
 
         }
 
-        bool IsSessionValid(AdomdConnection  con)
+        /// <summary>
+        /// Set limits on connection lifetime.
+        /// TOTO: refine time parameters with testing/PG guidance
+        /// </summary>
+        /// <param name="con"></param>
+        /// <returns></returns>
+        bool IsSessionValidForCheckIn(AdomdConnection  con)
         {
             var sessionStart = sessionStartTimes[con.SessionID];
             var openFor = DateTime.Now.Subtract(sessionStart);
@@ -57,17 +62,58 @@ namespace XmlaControllerSample.Services
             return rv;
 
         }
+        bool IsSessionValidForCheckOut(AdomdConnection con)
+        {
+            var sessionStart = sessionStartTimes[con.SessionID];
+            var openFor = DateTime.Now.Subtract(sessionStart);
+            var rv = (openFor < TimeSpan.FromMinutes(25));
+            return rv;
+
+        }
+
+        /// <summary>
+        /// Runs a trivial command on the connection before returning it
+        /// </summary>
+        /// <returns></returns>
+        public AdomdConnection GetValidatedConnection()
+        {
+            var con = GetConnection();
+            int retries = 0;
+            while (true)
+            {
+                var cmd = con.CreateCommand();
+                cmd.CommandText = "";
+                try
+                {
+                    var sw = new Stopwatch();
+                    sw.Start();
+                    cmd.ExecuteNonQuery();
+
+                    log.LogInformation($"Connection validated on checkout in {sw.ElapsedMilliseconds:F0}ms");
+                    return con;
+                }
+                catch (AdomdConnectionException ex)
+                {
+                    log.LogWarning($"Connection failed validation on checkout {ex.GetType().Name} : {ex.Message}");
+                    con.Dispose();
+                    con = GetConnection();
+                    retries++;
+                }
+            }
+        }
         public AdomdConnection GetConnection()
         {
 
             var con = pool.Get();
 
-            while (con.State != System.Data.ConnectionState.Open || !IsSessionValid(con))
+        
+            while (con.State != System.Data.ConnectionState.Open || !IsSessionValidForCheckOut(con))
             {
                 log.LogInformation("Retrieved connection that either was not Open or whose session has timed out.");
                 ReturnConnection(con);
                 con = pool.Get();
             }
+            
             return con;
         }
 
@@ -80,32 +126,10 @@ namespace XmlaControllerSample.Services
             pool.Return(con);
         }
 
-        
-
-        //async Task<string> GetAccessTokenAsync()
-        //{
-
-        //    var sw = new Stopwatch();
-        //    sw.Start();
-        //    //use this resourceId for Power BI Premium
-        //    var scope = "https://analysis.windows.net/powerbi/api/.default";
-            
-        //    //use this resourceId for Azure Analysis Services
-        //    //var resourceId = "https://*.asazure.windows.net";
-
-        //    var token = await client.AcquireTokenForClient(new List<string>() { scope }).ExecuteAsync();
-
-        //    if (sw.ElapsedMilliseconds > 200)
-        //        log.LogWarning($"AcquireTokenForClient returned in {sw.ElapsedMilliseconds:F0}ms");
-
-        //    return token.AccessToken;
-        //}
-
+       
 
         AdomdConnection IPooledObjectPolicy<AdomdConnection>.Create()
         {
-            //var accessToken = GetAccessTokenAsync().Result;
-            //var constr = $"Data Source={options.XmlaEndpoint};User Id=;Password={accessToken};Catalog={options.DatasetName}";
             var constr = $"Data Source={options.XmlaEndpoint};User Id=app:{options.ClientId}@{options.TenantId};Password={options.ClientSecret};Catalog={options.DatasetName}";
             var con = new AdomdConnection(constr);
 
@@ -118,8 +142,9 @@ namespace XmlaControllerSample.Services
 
         bool IPooledObjectPolicy<AdomdConnection>.Return(AdomdConnection con)
         {
-            if (con.State != System.Data.ConnectionState.Open || !IsSessionValid(con))
+            if (con.State != System.Data.ConnectionState.Open || !IsSessionValidForCheckIn(con))
             {
+                
                 sessionStartTimes.Remove(con.SessionID, out _);
                 con.Dispose();
                 return false;
