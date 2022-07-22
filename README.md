@@ -29,3 +29,5 @@ These can be provided in appsettings.json, user secrets in development, or throu
  
 This sample currently does not demonstrate setting EffectiveUserName, or using an on-behalf-of authentication flow.
 
+This sample also includes a library of Extension Methods for working with Adomd.net, which includes the ability to translate an AdomdDataReader to a JSON document with a schema compatible to the Power BI ExecuteQueries API.
+
