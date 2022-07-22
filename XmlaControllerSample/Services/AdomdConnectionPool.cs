@@ -68,7 +68,6 @@ namespace XmlaControllerSample.Services
             var openFor = DateTime.Now.Subtract(sessionStart);
             var rv = (openFor < TimeSpan.FromMinutes(25));
             return rv;
-
         }
 
         /// <summary>
@@ -133,7 +132,13 @@ namespace XmlaControllerSample.Services
             var constr = $"Data Source={options.XmlaEndpoint};User Id=app:{options.ClientId}@{options.TenantId};Password={options.ClientSecret};Catalog={options.DatasetName}";
             var con = new AdomdConnection(constr);
 
+            var sw = new Stopwatch();
+            sw.Start();
             con.Open();
+            if (sw.ElapsedMilliseconds > 4000)
+            {
+                log.LogWarning($"AdomdConnection.Open succeeded in {sw.ElapsedMilliseconds}ms");
+            }
             sessionStartTimes.AddOrUpdate(con.SessionID, s => DateTime.Now, (s,d) => DateTime.Now);
             log.LogInformation("Creating new pooled connection");
                         

@@ -81,5 +81,21 @@ ORDER BY
 
             return sales; 
         }
+
+        [HttpGet("api/SalesByDayJSON")]
+        public async Task GetSalesByDayJson(int fiscalYear)
+        {
+            var sw = new Stopwatch();
+            sw.Start();
+            var pFy = queryService.CreateParameter("FiscalYear", fiscalYear);
+            
+            this.HttpContext.Response.ContentType  = "application/json";
+            await queryService.ExecuteJSONToStream(query, this.HttpContext.Response.Body, pFy);
+            logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {-1}bytes");
+
+            await this.HttpContext.Response.CompleteAsync();
+
+
+        }
     }
 }

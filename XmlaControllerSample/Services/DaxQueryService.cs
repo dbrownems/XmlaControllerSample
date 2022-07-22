@@ -1,6 +1,7 @@
 ﻿using Microsoft.AnalysisServices.AdomdClient;
 using Polly;
 using System.Data;
+using System.Diagnostics;
 
 namespace XmlaControllerSample.Services
 {
@@ -9,6 +10,7 @@ namespace XmlaControllerSample.Services
         private AdomdConnectionPool pool;
         private ILogger<DaxQueryService> log;
         private AdomdConnection con;
+        
 
         public DaxQueryService(AdomdConnectionPool pool, ILogger<DaxQueryService> log)
         {
@@ -17,6 +19,7 @@ namespace XmlaControllerSample.Services
 
         }
 
+        
         public AdomdParameter CreateParameter(string name, object value)
         {
             if (name.StartsWith("@"))
@@ -25,7 +28,22 @@ namespace XmlaControllerSample.Services
             return new AdomdParameter(name, value);
         }
 
-        public IDataReader ExecuteReader(string query, params AdomdParameter[] parameters)
+        public async Task ExecuteJSONToStream(string query, Stream target, params AdomdParameter[] parameters)
+        {
+            using var rdr = ExecuteReader(query, parameters);
+            await rdr.WriteAsJsonToStream( target, System.Text.Encoding.UTF8, CancellationToken.None);
+        }
+
+        public string ExecuteJSON(string query, params AdomdParameter[] parameters)
+        {
+            
+            var ms = new MemoryStream();
+            ExecuteJSONToStream(query, ms, parameters).Wait();
+            ms.Position = 0;
+            return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+        }
+
+        public AdomdDataReader ExecuteReader(string query, params AdomdParameter[] parameters)
         {
             if (con == null)
                 con = pool.GetConnection();
@@ -40,24 +58,35 @@ namespace XmlaControllerSample.Services
                                         this.con = pool.GetValidatedConnection(); 
                                     });
 
-            return retryPolicy.Execute(() => ExecuteReaderImpl(query, parameters));
-        }
-        IDataReader ExecuteReaderImpl(string query, params AdomdParameter[] parameters)
-        {
-            var cmd = con.CreateCommand();
-            cmd.CommandText = query;
-
-            foreach (var parameter in parameters)
+            var result =  retryPolicy.ExecuteAndCapture(() => ExecuteReaderImpl(query, parameters));
+            if (result.Outcome == OutcomeType.Successful)
             {
-                cmd.Parameters.Add(parameter);
+                return result.Result;
             }
-            var rdr = cmd.ExecuteReader();
+            else
+            {
+                con.Dispose();
+                con = null;
+                throw result.FinalException;
+            }
+        }
+        AdomdDataReader ExecuteReaderImpl(string query, params AdomdParameter[] parameters)
+        {
+            var sw = new Stopwatch();
+            sw.Start();
+            var rdr = con.ExecuteReader(query, parameters);
+            if (sw.ElapsedMilliseconds > 2000)
+            {
+                log.LogWarning($"ExecuteReader completed in {sw.ElapsedMilliseconds}ms");
+            }
             return rdr;
         }
 
+
         public void Dispose()
         {
-            pool.ReturnConnection(con);
+            if (con != null)
+                pool.ReturnConnection(con);
         }
     }
 }
