@@ -1,10 +1,8 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using XmlaControllerSample.Services;
-using XmlaControllerSample.Models;
-using Dapper;
 using System.Diagnostics;
-using System.Data;
+using XmlaControllerSample.Models;
+using XmlaControllerSample.Services;
 
 namespace XmlaControllerSample.Controllers
 {
@@ -38,12 +36,12 @@ ORDER BY
         private DaxQueryService queryService;
         private ILogger<SalesByDayController> logger;
 
-        
-        public SalesByDayController( DaxQueryService queryService, ILogger<SalesByDayController> logger)
+
+        public SalesByDayController(DaxQueryService queryService, ILogger<SalesByDayController> logger)
         {
             this.queryService = queryService;
             this.logger = logger;
-            
+
         }
         static SalesByDayController()
         {
@@ -79,7 +77,7 @@ ORDER BY
             var sales = rdr.Parse<SalesByDay>().ToList();
             logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {sales.Count}rows");
 
-            return sales; 
+            return sales;
         }
 
         [HttpGet("api/SalesByDayJSON")]
@@ -88,8 +86,8 @@ ORDER BY
             var sw = new Stopwatch();
             sw.Start();
             var pFy = queryService.CreateParameter("FiscalYear", fiscalYear);
-            
-            this.HttpContext.Response.ContentType  = "application/json";
+
+            this.HttpContext.Response.ContentType = "application/json";
             await queryService.ExecuteJSONToStream(query, this.HttpContext.Response.Body, pFy);
             logger.LogInformation($"Query executed in {sw.Elapsed.TotalSeconds:F2}sec returning {-1}bytes");
 

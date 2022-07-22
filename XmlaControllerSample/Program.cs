@@ -1,6 +1,3 @@
-using Microsoft.Extensions.ObjectPool;
-using Microsoft.AnalysisServices.AdomdClient;
-using XmlaControllerSample;
 using XmlaControllerSample.Services;
 
 var builder = WebApplication.CreateBuilder(args);

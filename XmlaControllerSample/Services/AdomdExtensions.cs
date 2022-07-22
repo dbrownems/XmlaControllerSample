@@ -2,7 +2,7 @@
 
 public static class AdomdExtensions
 {
-    
+
     public static AdomdDataReader ExecuteReader(this AdomdConnection con, string query, params AdomdParameter[] parameters)
     {
         using var cmd = con.CreateCommand();
@@ -23,7 +23,7 @@ public static class AdomdExtensions
         }
         return cmd.ExecuteJson();
     }
-    public static async Task ExecuteJSONToStream(this AdomdConnection con, string query, Stream stream, CancellationToken cancel = default(CancellationToken), params AdomdParameter[] parameters)
+    public static async Task ExecuteJsonToStream(this AdomdConnection con, string query, Stream stream, CancellationToken cancel = default(CancellationToken), params AdomdParameter[] parameters)
     {
         using var cmd = con.CreateCommand();
         cmd.CommandText = query;
@@ -31,7 +31,7 @@ public static class AdomdExtensions
         {
             cmd.Parameters.Add(p);
         }
-        await cmd.ExecuteJSONToStream(stream, cancel);
+        await cmd.ExecuteJsonToStream(stream, cancel);
     }
 
     public static string ExecuteJson(this AdomdCommand cmd)
@@ -40,11 +40,11 @@ public static class AdomdExtensions
         var ms = new MemoryStream();
         var encoding = System.Text.Encoding.UTF8;
         rdr.WriteAsJsonToStream(ms, encoding).Wait();
-        
+
         return encoding.GetString(ms.ToArray());
     }
 
-    public static async Task ExecuteJSONToStream(this AdomdCommand cmd, Stream stream, CancellationToken cancel = default(CancellationToken))
+    public static async Task ExecuteJsonToStream(this AdomdCommand cmd, Stream stream, CancellationToken cancel = default(CancellationToken))
     {
         using var rdr = cmd.ExecuteReader();
         var encoding = System.Text.Encoding.UTF8;
@@ -64,7 +64,7 @@ public static class AdomdExtensions
         }
 
         using var rdr = reader;
-        
+
         //can't call Dispose on these without syncronous IO on the underlying connection
         var tw = new StreamWriter(stream, encoding, 1024 * 4, true);
         var w = new Newtonsoft.Json.JsonTextWriter(tw);

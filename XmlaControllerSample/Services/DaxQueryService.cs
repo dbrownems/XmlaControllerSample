@@ -1,6 +1,5 @@
 ﻿using Microsoft.AnalysisServices.AdomdClient;
 using Polly;
-using System.Data;
 using System.Diagnostics;
 
 namespace XmlaControllerSample.Services
@@ -10,7 +9,7 @@ namespace XmlaControllerSample.Services
         private AdomdConnectionPool pool;
         private ILogger<DaxQueryService> log;
         private AdomdConnection con;
-        
+
 
         public DaxQueryService(AdomdConnectionPool pool, ILogger<DaxQueryService> log)
         {
@@ -19,7 +18,7 @@ namespace XmlaControllerSample.Services
 
         }
 
-        
+
         public AdomdParameter CreateParameter(string name, object value)
         {
             if (name.StartsWith("@"))
@@ -31,12 +30,12 @@ namespace XmlaControllerSample.Services
         public async Task ExecuteJSONToStream(string query, Stream target, params AdomdParameter[] parameters)
         {
             using var rdr = ExecuteReader(query, parameters);
-            await rdr.WriteAsJsonToStream( target, System.Text.Encoding.UTF8, CancellationToken.None);
+            await rdr.WriteAsJsonToStream(target, System.Text.Encoding.UTF8, CancellationToken.None);
         }
 
         public string ExecuteJSON(string query, params AdomdParameter[] parameters)
         {
-            
+
             var ms = new MemoryStream();
             ExecuteJSONToStream(query, ms, parameters).Wait();
             ms.Position = 0;
@@ -50,15 +49,15 @@ namespace XmlaControllerSample.Services
 
             var retryPolicy = Policy.Handle<AdomdConnectionException>()
                                     .WaitAndRetry(new TimeSpan[] { TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4) },
-                                    onRetry: (e, t) => 
+                                    onRetry: (e, t) =>
                                     {
                                         log.LogWarning($"Retrying after exception {e.GetType().Name} : {e.Message}");
                                         //retry using a new, validated connection
                                         con.Dispose();
-                                        this.con = pool.GetValidatedConnection(); 
+                                        this.con = pool.GetValidatedConnection();
                                     });
 
-            var result =  retryPolicy.ExecuteAndCapture(() => ExecuteReaderImpl(query, parameters));
+            var result = retryPolicy.ExecuteAndCapture(() => ExecuteReaderImpl(query, parameters));
             if (result.Outcome == OutcomeType.Successful)
             {
                 return result.Result;
