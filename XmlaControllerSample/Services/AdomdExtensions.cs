@@ -39,24 +39,20 @@
         {
             using var rdr = cmd.ExecuteReader();
             var ms = new MemoryStream();
-            var encoding = System.Text.Encoding.UTF8;
-            rdr.WriteAsJsonToStream(ms, encoding).Wait();
 
-            return encoding.GetString(ms.ToArray());
+            rdr.WriteAsJsonToStream(ms).Wait();
+
+            return System.Text.Encoding.UTF8.GetString(ms.ToArray());
         }
 
         public static async Task ExecuteJsonToStream(this AdomdCommand cmd, Stream stream, CancellationToken cancel = default(CancellationToken))
         {
             using var rdr = cmd.ExecuteReader();
-            var encoding = System.Text.Encoding.UTF8;
-            await rdr.WriteAsJsonToStream(stream, encoding, cancel);
+            await rdr.WriteAsJsonToStream(stream, cancel);
         }
 
-        public static async Task WriteAsJsonToStream(this AdomdDataReader reader, Stream stream, CancellationToken cancel = default(CancellationToken))
-        {
-            await reader.WriteAsJsonToStream(stream, System.Text.Encoding.UTF8, cancel);
-        }
-        public static async Task WriteAsJsonToStream(this AdomdDataReader reader, Stream stream, System.Text.Encoding encoding, CancellationToken cancel = default(CancellationToken))
+
+        public static async Task WriteAsJsonToStream(this AdomdDataReader reader, Stream stream,  CancellationToken cancel = default(CancellationToken))
         {
 
             if (reader == null)
@@ -67,7 +63,7 @@
             using var rdr = reader;
 
             //can't call Dispose on these without syncronous IO on the underlying connection
-            var tw = new StreamWriter(stream, encoding, 1024 * 4, true);
+            var tw = new StreamWriter(stream, bufferSize: 1024 * 4, leaveOpen: true);
             var w = new Newtonsoft.Json.JsonTextWriter(tw);
             int rows = 0;
 

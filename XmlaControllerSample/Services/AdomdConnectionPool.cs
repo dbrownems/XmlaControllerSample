@@ -14,7 +14,7 @@ namespace XmlaControllerSample.Services
         ConcurrentDictionary<string, DateTime> sessionStartTimes = new ConcurrentDictionary<string, DateTime>();
         ObjectPool<AdomdConnection> pool;
 
-        public AdomdConnectionPool(IConfiguration config, ILogger<AdomdConnectionPool> log) : this(config.Get<ConnectionOptions>(), log)
+        public AdomdConnectionPool(IConfiguration config, ILogger<AdomdConnectionPool> log) : this(config.Get<ConnectionOptions>(),log)
         {
         }
         public AdomdConnectionPool(ConnectionOptions options, ILogger<AdomdConnectionPool> log)
@@ -38,7 +38,7 @@ namespace XmlaControllerSample.Services
             {
                 cons.Add(pool.Get());
             }
-
+            
 
             foreach (var c in cons)
             {
@@ -54,7 +54,7 @@ namespace XmlaControllerSample.Services
         /// </summary>
         /// <param name="con"></param>
         /// <returns></returns>
-        bool IsSessionValidForCheckIn(AdomdConnection con)
+        bool IsSessionValidForCheckIn(AdomdConnection  con)
         {
             var sessionStart = sessionStartTimes[con.SessionID];
             var openFor = DateTime.Now.Subtract(sessionStart);
@@ -105,14 +105,14 @@ namespace XmlaControllerSample.Services
 
             var con = pool.Get();
 
-
+        
             while (con.State != System.Data.ConnectionState.Open || !IsSessionValidForCheckOut(con))
             {
                 log.LogInformation("Retrieved connection that either was not Open or whose session has timed out.");
                 ReturnConnection(con);
                 con = pool.Get();
             }
-
+            
             return con;
         }
 
@@ -121,11 +121,11 @@ namespace XmlaControllerSample.Services
             if (con == null)
                 return;
 
-
+            
             pool.Return(con);
         }
 
-
+       
 
         AdomdConnection IPooledObjectPolicy<AdomdConnection>.Create()
         {
@@ -139,9 +139,9 @@ namespace XmlaControllerSample.Services
             {
                 log.LogWarning($"AdomdConnection.Open succeeded in {sw.ElapsedMilliseconds}ms");
             }
-            sessionStartTimes.AddOrUpdate(con.SessionID, s => DateTime.Now, (s, d) => DateTime.Now);
+            sessionStartTimes.AddOrUpdate(con.SessionID, s => DateTime.Now, (s,d) => DateTime.Now);
             log.LogInformation("Creating new pooled connection");
-
+                        
             return con;
         }
 
@@ -149,12 +149,12 @@ namespace XmlaControllerSample.Services
         {
             if (con.State != System.Data.ConnectionState.Open || !IsSessionValidForCheckIn(con))
             {
-
+                
                 sessionStartTimes.Remove(con.SessionID, out _);
                 con.Dispose();
                 return false;
             }
-
+                
 
 
             return true;
@@ -188,7 +188,7 @@ namespace XmlaControllerSample.Services
 
 
         }
-
-
+     
+  
     }
 }
